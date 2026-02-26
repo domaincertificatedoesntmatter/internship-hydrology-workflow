@@ -1,0 +1,28 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+.env
+
+# Keep data private
+Inputs/
+Outputs/
+
+# Large geospatial / binary files (optional safety)
+*.tif
+*.tiff
+*.nc
+*.hdf
+*.h5
