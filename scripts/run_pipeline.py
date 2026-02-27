@@ -175,7 +175,21 @@ def build_rain_mask(index: pd.DatetimeIndex, events: pd.DataFrame, post_rain_del
         mask.loc[(mask.index >= start) & (mask.index <= end)] = True
 
     return mask
-    
+
+def build_rain_mask(index: pd.DatetimeIndex, events: pd.DataFrame, post_rain_delay_min: int = 150) -> pd.Series:
+    """
+    Boolean mask for each timestamp:
+    True if inside any [date_start, date_finish + post_delay].
+    """
+    mask = pd.Series(False, index=index)
+    delay = pd.Timedelta(minutes=post_rain_delay_min)
+
+    for _, r in events.iterrows():
+        start = r["date_start"]
+        end = r["date_finish"] + delay
+        mask.loc[(mask.index >= start) & (mask.index <= end)] = True
+
+    return mask 
 # -----------------------------------------------------------------------------
 # Main entry point
 # -----------------------------------------------------------------------------
@@ -197,6 +211,10 @@ def main():
     # Union of intervals from both gauges
     events_all = pd.concat([events_p1, events_p7], ignore_index=True)
     events_all = merge_event_intervals(events_all, gap_minutes=0)
+
+POST_RAIN_DELAY_MIN = 150  # you wanted a post-rain delay
+rain_mask = build_rain_mask(df.index, events_all, post_rain_delay_min=POST_RAIN_DELAY_MIN)
+rain_mask.to_frame(name="rain_affected").to_csv(OUTPUTS_DIR / "rain_mask_with_delay.csv")
 
     # Save event tables (Outputs/ is local; typically ignored by git)
     events_p1.to_csv(OUTPUTS_DIR / "rain_events_pluvio1.csv", index=False)
