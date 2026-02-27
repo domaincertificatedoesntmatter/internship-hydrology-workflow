@@ -17,12 +17,12 @@ venv/
 .env
 
 # Keep data private
-Inputs/
-Outputs/
+Inputs/*.txt
+Inputs/*.csv
+Inputs/*.xlsx
+Inputs/*.xls
+Outputs/*
 
-# Large geospatial / binary files (optional safety)
-*.tif
-*.tiff
-*.nc
-*.hdf
-*.h5
+# Allow placeholders
+!Inputs/.gitkeep
+!Outputs/.gitkeep
