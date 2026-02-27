@@ -16,6 +16,9 @@ From raw time series exports, the pipeline can:
 ## Example figures (included)
 These figures are generated from the 30-minute resampled time series and are included to show the typical outputs (raw input data are not included).
 
+### 3) QA plot: observed flow, estimated baseflow, rainfall-induced flow (30-min)
+![](example_figures/qa_baseflow_rainflow_30min.png)
+
 ### 1) Rainfall (30-min)
 ![](example_figures/rainfall_30min.png)
 
