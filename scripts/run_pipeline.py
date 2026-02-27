@@ -279,7 +279,7 @@ def main():
     # Load raw data
     df = load_main_timeseries(MAIN_TIMESERIES_FILE)
 
-    # --- Rain events using BOTH gauges (CEREMA rules) ---
+       # --- Rain events using BOTH gauges (CEREMA rules) ---
     events_p1 = detect_rain_events_cerema(df["pluvio1"])
     events_p7 = detect_rain_events_cerema(df["pluvio7"])
 
@@ -287,32 +287,24 @@ def main():
     events_all = pd.concat([events_p1, events_p7], ignore_index=True)
     events_all = merge_event_intervals(events_all, gap_minutes=0)
 
-POST_RAIN_DELAY_MIN = 150  # you wanted a post-rain delay
-rain_mask = build_rain_mask(df.index, events_all, post_rain_delay_min=POST_RAIN_DELAY_MIN)
-rain_mask.to_frame(name="rain_affected").to_csv(OUTPUTS_DIR / "rain_mask_with_delay.csv")
-
     # Save event tables (Outputs/ is local; typically ignored by git)
     events_p1.to_csv(OUTPUTS_DIR / "rain_events_pluvio1.csv", index=False)
     events_p7.to_csv(OUTPUTS_DIR / "rain_events_pluvio7.csv", index=False)
     events_all.to_csv(OUTPUTS_DIR / "rain_events_both_gauges.csv", index=False)
 
     # --- Rain mask with post-rain delay (minutes) ---
-    POST_RAIN_DELAY_MIN = 150  # change to 120 if you want later
-
+    POST_RAIN_DELAY_MIN = 150
     rain_mask = build_rain_mask(df.index, events_all, post_rain_delay_min=POST_RAIN_DELAY_MIN)
-    # Save mask (useful for QA/QC)
     rain_mask.to_frame(name="rain_affected").to_csv(OUTPUTS_DIR / "rain_mask_with_delay.csv")
-    
+
     # Resample to 30 minutes
     df_30 = resample_30min(df)
 
-# --- Detect filling segments from stored volume (on 30-min data) ---
-segments = detect_filling_segments(df_30["storedvolume"], resample_freq=RESAMPLE_FREQ)
-seg_table = segments_to_table(df_30, segments)
-seg_table.to_csv(OUTPUTS_DIR / "filling_segments_raw.csv", index=False)
-print(f"Saved: {OUTPUTS_DIR / 'filling_segments_raw.csv'}")
-
-    # Save output
+    # --- Detect filling segments from stored volume (on 30-min data) ---
+    segments = detect_filling_segments(df_30["storedvolume"], resample_freq=RESAMPLE_FREQ)
+    seg_table = segments_to_table(df_30, segments)
+    seg_table.to_csv(OUTPUTS_DIR / "filling_segments_raw.csv", index=False)
+    print(f"Saved: {OUTPUTS_DIR / 'filling_segments_raw.csv'}")
     out_csv = OUTPUTS_DIR / "timeseries_30min.csv"
     df_30.to_csv(out_csv)
 
