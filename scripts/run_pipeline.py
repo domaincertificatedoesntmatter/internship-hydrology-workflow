@@ -264,7 +264,45 @@ def segments_to_table(de_resampled: pd.DataFrame, segments: list[tuple[pd.Timest
                 q = dV / dt_s  # m3/s
                 rows.append((start, end, (end - start).total_seconds() / 60.0, dV, q))
     return pd.DataFrame(rows, columns=["start", "end", "duration_min", "dV_m3", "q_m3s"])
-    
+
+def filter_segments_by_dV(seg_table: pd.DataFrame, dV_min: float = 30.0, dV_max: float = 100.0) -> pd.DataFrame:
+    """Keep segments with positive flow and dV within [dV_min, dV_max]."""
+    seg = seg_table.copy()
+    seg = seg[(seg["q_m3s"] >= 0) & (seg["dV_m3"] >= dV_min) & (seg["dV_m3"] <= dV_max)]
+    return seg.reset_index(drop=True)
+
+
+def remove_segments_overlapping_rain(seg_table: pd.DataFrame, rain_mask_30min: pd.Series) -> pd.DataFrame:
+    """
+    Remove segments that overlap any rain-affected timestep (True in rain_mask_30min).
+    rain_mask_30min index must match the 30-min dataframe index.
+    """
+    keep_rows = []
+    for _, r in seg_table.iterrows():
+        s, e = r["start"], r["end"]
+        overlap = rain_mask_30min.loc[(rain_mask_30min.index >= s) & (rain_mask_30min.index <= e)].any()
+        if not overlap:
+            keep_rows.append(r)
+    return pd.DataFrame(keep_rows).reset_index(drop=True)
+
+
+def build_baseflow_from_segments(df30: pd.DataFrame, seg_table: pd.DataFrame) -> pd.Series:
+    """
+    Create a 30-min baseflow series:
+    - assign segment q_m3s over [start, end]
+    - interpolate gaps using time interpolation
+    - clip negatives
+    """
+    base = pd.Series(np.nan, index=df30.index, name="baseflow_m3s")
+
+    for _, r in seg_table.iterrows():
+        s, e, q = r["start"], r["end"], r["q_m3s"]
+        base.loc[(base.index >= s) & (base.index <= e)] = q
+
+    base = base.interpolate(method="time").clip(lower=0)
+    return base
+
+
 # -----------------------------------------------------------------------------
 # Main entry point
 # -----------------------------------------------------------------------------
@@ -304,6 +342,29 @@ def main():
     segments = detect_filling_segments(df_30["storedvolume"], resample_freq=RESAMPLE_FREQ)
     seg_table = segments_to_table(df_30, segments)
     seg_table.to_csv(OUTPUTS_DIR / "filling_segments_raw.csv", index=False)
+
+        # --- Filter segments (dV between 30 and 100 m3) ---
+    seg_filt = filter_segments_by_dV(seg_table, dV_min=30.0, dV_max=100.0)
+
+    # Build a 30-min rain mask from the minute-scale mask (any rain within each 30-min bin)
+    rain_mask_30 = rain_mask.resample(RESAMPLE_FREQ).max().astype(bool)
+
+    # Remove segments overlapping rain-affected periods
+    seg_filt = remove_segments_overlapping_rain(seg_filt, rain_mask_30)
+
+    seg_filt.to_csv(OUTPUTS_DIR / "filling_segments_filtered.csv", index=False)
+
+    # --- Build baseflow on 30-min index ---
+    baseflow_30 = build_baseflow_from_segments(df_30, seg_filt)
+    baseflow_30.to_csv(OUTPUTS_DIR / "baseflow_30min.csv")
+
+    # --- Rainfall-induced flow = total - baseflow (clip at 0) ---
+    rainfall_flow_30 = (df_30["flowrate"] - baseflow_30).clip(lower=0)
+    rainfall_flow_30.to_csv(OUTPUTS_DIR / "rainfall_flowrate_30min.csv")
+
+    print(f"Saved: {OUTPUTS_DIR / 'filling_segments_filtered.csv'}")
+    print(f"Saved: {OUTPUTS_DIR / 'baseflow_30min.csv'}")
+    print(f"Saved: {OUTPUTS_DIR / 'rainfall_flowrate_30min.csv'}")
     print(f"Saved: {OUTPUTS_DIR / 'filling_segments_raw.csv'}")
     out_csv = OUTPUTS_DIR / "timeseries_30min.csv"
     df_30.to_csv(out_csv)
