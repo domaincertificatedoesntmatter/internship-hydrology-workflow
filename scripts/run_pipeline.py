@@ -1,6 +1,7 @@
 from pathlib import Path
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
 # -----------------------------------------------------------------------------
 # Paths / settings
@@ -302,7 +303,32 @@ def build_baseflow_from_segments(df30: pd.DataFrame, seg_table: pd.DataFrame) ->
     base = base.interpolate(method="time").clip(lower=0)
     return base
 
+def save_qa_plot(df30: pd.DataFrame, baseflow_30: pd.Series, rainfall_flow_30: pd.Series, outdir: Path) -> Path:
+    """
+    Save a simple QA/QC plot comparing:
+    - observed flowrate
+    - estimated baseflow
+    - rainfall-induced flow
+    """
+    outdir.mkdir(exist_ok=True)
 
+    fig, ax = plt.subplots(figsize=(12, 5))
+    df30["flowrate"].plot(ax=ax, linewidth=1, label="Observed flowrate (30-min)")
+    baseflow_30.plot(ax=ax, linewidth=1, label="Estimated baseflow (30-min)")
+    rainfall_flow_30.plot(ax=ax, linewidth=1, label="Rainfall-induced flow (30-min)")
+
+    ax.set_title("QA: Observed flow vs estimated baseflow and rainfall-induced flow")
+    ax.set_xlabel("Time")
+    ax.set_ylabel("m³/s")
+    ax.grid(True)
+    ax.legend()
+
+    fig.tight_layout()
+    outpath = outdir / "qa_baseflow_rainflow_30min.png"
+    fig.savefig(outpath, dpi=200)
+    plt.close(fig)
+    return outpath
+    
 # -----------------------------------------------------------------------------
 # Main entry point
 # -----------------------------------------------------------------------------
@@ -361,6 +387,9 @@ def main():
     # --- Rainfall-induced flow = total - baseflow (clip at 0) ---
     rainfall_flow_30 = (df_30["flowrate"] - baseflow_30).clip(lower=0)
     rainfall_flow_30.to_csv(OUTPUTS_DIR / "rainfall_flowrate_30min.csv")
+
+    qa_path = save_qa_plot(df_30, baseflow_30, rainfall_flow_30, Path("example_figures"))
+    print(f"Saved QA figure: {qa_path}")
 
     print(f"Saved: {OUTPUTS_DIR / 'filling_segments_filtered.csv'}")
     print(f"Saved: {OUTPUTS_DIR / 'baseflow_30min.csv'}")
