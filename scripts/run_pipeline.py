@@ -190,6 +190,81 @@ def build_rain_mask(index: pd.DatetimeIndex, events: pd.DataFrame, post_rain_del
         mask.loc[(mask.index >= start) & (mask.index <= end)] = True
 
     return mask 
+
+def detect_filling_segments(
+    storedvolume: pd.Series,
+    resample_freq: str = "30min",
+    min_duration_min: int = 60,
+    descent_duration_min: int = 45,
+    short_gap_min: int = 45,
+) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+    """
+    Detect periods where stored volume is increasing (dV >= 0) and then followed by a
+    continuous descent window. Implemented with a while-loop (robust).
+
+    Returns list of (start, end) timestamps.
+    """
+    df = pd.DataFrame({"V": storedvolume}).copy()
+    df["dV"] = df["V"].diff().shift(-1)          # next-step difference
+    df["pos"] = df["dV"] >= 0
+
+    freq_td = pd.Timedelta(resample_freq)
+    steps_descent = int(pd.Timedelta(minutes=descent_duration_min) / freq_td)
+    steps_shortgap = int(pd.Timedelta(minutes=short_gap_min) / freq_td)
+    min_duration = pd.Timedelta(minutes=min_duration_min)
+
+    n = len(df)
+    i = 0
+    start = None
+    segments = []
+
+    while i < n:
+        if df["pos"].iloc[i]:
+            if start is None:
+                start = df.index[i]
+            i += 1
+            continue
+
+        # hit a negative slope
+        if start is not None:
+            end = df.index[i]
+
+            # continuous descent check after end
+            jmax = min(i + steps_descent, n)
+            continuous_descent = not df["pos"].iloc[i:jmax].any()
+
+            if (end - start) >= min_duration and continuous_descent:
+                # find next positive after i
+                s = df["pos"].iloc[i:]
+                if s.any():
+                    next_pos_time = s[s].index[0]
+                    if (next_pos_time - end) <= pd.Timedelta(minutes=short_gap_min):
+                        i = df.index.get_loc(next_pos_time)
+                        continue
+
+                segments.append((start, end))
+
+            start = None
+
+        i += 1
+
+    if start is not None:
+        segments.append((start, df.index[-1]))
+
+    return segments
+
+
+def segments_to_table(de_resampled: pd.DataFrame, segments: list[tuple[pd.Timestamp, pd.Timestamp]]) -> pd.DataFrame:
+    rows = []
+    for start, end in segments:
+        if start in de_resampled.index and end in de_resampled.index:
+            dV = float(de_resampled.loc[end, "storedvolume"] - de_resampled.loc[start, "storedvolume"])
+            dt_s = float((end - start).total_seconds())
+            if dt_s > 0:
+                q = dV / dt_s  # m3/s
+                rows.append((start, end, (end - start).total_seconds() / 60.0, dV, q))
+    return pd.DataFrame(rows, columns=["start", "end", "duration_min", "dV_m3", "q_m3s"])
+    
 # -----------------------------------------------------------------------------
 # Main entry point
 # -----------------------------------------------------------------------------
@@ -230,6 +305,12 @@ rain_mask.to_frame(name="rain_affected").to_csv(OUTPUTS_DIR / "rain_mask_with_de
     
     # Resample to 30 minutes
     df_30 = resample_30min(df)
+
+# --- Detect filling segments from stored volume (on 30-min data) ---
+segments = detect_filling_segments(df_30["storedvolume"], resample_freq=RESAMPLE_FREQ)
+seg_table = segments_to_table(df_30, segments)
+seg_table.to_csv(OUTPUTS_DIR / "filling_segments_raw.csv", index=False)
+print(f"Saved: {OUTPUTS_DIR / 'filling_segments_raw.csv'}")
 
     # Save output
     out_csv = OUTPUTS_DIR / "timeseries_30min.csv"
